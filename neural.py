@@ -2,187 +2,161 @@ import os
 import json
 import config
 
-class NeuralManager:
-    def __init__(self, memory):
-        self.memory = memory
-        self.vocab = self._SimpleVocab()
-        self.kellon_nn = None
-        self.optimizer = None
-        self.loss_fn = None
-        self._kellon_input_size = None
-
-        self.training_data = self._load_training_data()
-        self._update_vocab()
-
-        if config.USE_TORCH:
-            self._build_nn()
-
-    # --- "Private" Classes ---
-    class _SimpleVocab:
-        def __init__(self):
-            self.word2idx = {}
-            self.idx2word = []
-
-        def add_words(self, words):
-            for w in words:
-                w = str(w).strip().lower()
-                if w and w not in self.word2idx:
-                    self.word2idx[w] = len(self.idx2word)
-                    self.idx2word.append(w)
-
-        def encode_dense(self, words):
-            vec = [0.0]*len(self.idx2word)
-            for w in words:
-                w = w.lower()
-                if w in self.word2idx:
-                    vec[self.word2idx[w]] = 1.0
-            if config.USE_TORCH:
-                return config.torch.tensor(vec, dtype=config.torch.float32)
-            return vec
-
-        def size(self):
-            return len(self.idx2word)
-
+try:
+    import torch
+    from torch.utils.data import Dataset, DataLoader
+    from transformers import AutoModelForCausalLM, AutoTokenizer, AdamW
+except ImportError:
     if config.USE_TORCH:
-        class _KellonNN(config.nn.Module):
-            def __init__(self, input_size, hidden_size=128, output_size=None):
-                super().__init__()
-                if output_size is None:
-                    output_size = input_size
-                self.fc1 = config.nn.Linear(input_size, hidden_size)
-                self.relu = config.nn.ReLU()
-                self.fc2 = config.nn.Linear(hidden_size, output_size)
+        print("Warning: `transformers` library not found, but torch is available. Please install `transformers`.")
+    config.USE_TORCH = False
 
-            def forward(self, x):
-                if x.dim()==1:
-                    x = x.unsqueeze(0)
-                x = self.fc1(x)
-                x = self.relu(x)
-                x = self.fc2(x)
-                return x
-    else:
-        _KellonNN = None
 
-    # --- "Private" Methods ---
+class NeuralManager:
+    def __init__(self):
+        self.model = None
+        self.tokenizer = None
+
+        if not config.USE_TORCH:
+            print("PyTorch or transformers not found. Neural features will be disabled.")
+            return
+
+        model_name = "distilgpt2"
+        # Load fine-tuned model if it exists, otherwise load base model
+        model_path = config.NN_WEIGHTS_FILE
+        if os.path.exists(model_path):
+            print(f"Loading fine-tuned model from '{model_path}'...")
+            model_to_load = model_path
+        else:
+            print(f"Loading base model '{model_name}'...")
+            model_to_load = model_name
+
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_to_load)
+            self.model = AutoModelForCausalLM.from_pretrained(model_to_load)
+
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+
+            print(f"Transformer model loaded successfully.")
+
+        except Exception as e:
+            print(f"Error loading Transformer model: {e}")
+            self.model = None
+            self.tokenizer = None
+
+    class _ConversationDataset(Dataset):
+        def __init__(self, tokenizer, data, block_size=128):
+            self.tokenizer = tokenizer
+            self.examples = []
+            for item in data:
+                # Format as "input <|endoftext|> output <|endoftext|>"
+                text = f"{item['input']}{tokenizer.eos_token}{item['output']}{tokenizer.eos_token}"
+                tokenized_text = tokenizer.encode(text)
+
+                if len(tokenized_text) > block_size:
+                    tokenized_text = tokenized_text[:block_size]
+
+                self.examples.append(torch.tensor(tokenized_text, dtype=torch.long))
+
+        def __len__(self):
+            return len(self.examples)
+
+        def __getitem__(self, i):
+            return self.examples[i]
+
     def _load_training_data(self):
         if os.path.exists(config.TRAINING_DATA_FILE):
             with open(config.TRAINING_DATA_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         return []
 
-    def _update_vocab(self):
-        # From memory
-        words = []
-        words += self.memory.get("concepts", [])
-        words += [s["name"] for s in self.memory.get("skills", []) if isinstance(s, dict)]
-        words += self.memory.get("history", [])
-
-        # From training data
-        if self.training_data:
-            for item in self.training_data:
-                words.extend(item["input"].lower().split())
-                words.extend(item["output"].lower().split())
-
-        self.vocab.add_words(words)
-
-    def _build_nn(self, rebuild=False):
-        if not config.USE_TORCH:
-            return
-
-        input_size = max(1, self.vocab.size())
-        output_size = input_size
-        if self.kellon_nn is not None and self._kellon_input_size == input_size and not rebuild:
-            return
-
-        model = self._KellonNN(input_size, hidden_size=128, output_size=output_size)
-        opt = config.optim.Adam(model.parameters(), lr=1e-3)
-        loss = config.nn.MSELoss()
-        if os.path.exists(config.NN_WEIGHTS_FILE) and not rebuild:
-            try:
-                state = config.torch.load(config.NN_WEIGHTS_FILE, map_location="cpu")
-                model.load_state_dict(state)
-            except Exception:
-                pass
-
-        self.kellon_nn = model
-        self.optimizer = opt
-        self.loss_fn = loss
-        self._kellon_input_size = input_size
-
-    def _text_to_vector(self, text):
-        words = text.lower().split()
-        return self.vocab.encode_dense(words)
-
-    # --- Public API Methods ---
-    def train(self, epochs=20):
-        if not config.USE_TORCH or not self.training_data:
-            print("Training skipped: PyTorch not available or no training data found.")
+    def train(self, epochs=3):
+        if not self.model or not self.tokenizer:
+            print("Model or tokenizer not available. Skipping training.")
             return None
 
-        self._update_vocab()
+        training_data = self._load_training_data()
+        if not training_data:
+            print("No training data found. Skipping training.")
+            return None
 
-        input_size = max(1, self.vocab.size())
-        if self._kellon_input_size != input_size:
-            self._build_nn(rebuild=True)
+        dataset = self._ConversationDataset(self.tokenizer, training_data)
+        if len(dataset) == 0:
+            print("Dataset is empty. Skipping training.")
+            return None
 
-        print("Starting training on dataset...")
+        dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+        optimizer = AdamW(self.model.parameters(), lr=5e-5)
+
+        self.model.train()
+        print("Starting fine-tuning...")
+
         total_loss = 0
         for epoch in range(epochs):
             epoch_loss = 0
-            for item in self.training_data:
-                self.optimizer.zero_grad()
+            for batch in dataloader:
+                optimizer.zero_grad()
 
-                input_vec = self._text_to_vector(item["input"])
-                target_vec = self._text_to_vector(item["output"])
+                outputs = self.model(batch, labels=batch)
+                loss = outputs.loss
 
-                if input_vec.numel() == 0:
-                    continue
-
-                output_vec = self.kellon_nn(input_vec)
-
-                loss = self.loss_fn(output_vec, target_vec.unsqueeze(0))
                 loss.backward()
-                self.optimizer.step()
+                optimizer.step()
                 epoch_loss += loss.item()
 
-            total_loss = epoch_loss / len(self.training_data)
-            if (epoch + 1) % 5 == 0:
-                print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss:.4f}")
+            avg_loss = epoch_loss / len(dataloader)
+            print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}")
+            total_loss = avg_loss
 
         try:
-            config.torch.save(self.kellon_nn.state_dict(), config.NN_WEIGHTS_FILE)
-            print("Training complete. Model saved.")
+            self.model.save_pretrained(config.NN_WEIGHTS_FILE)
+            self.tokenizer.save_pretrained(config.NN_WEIGHTS_FILE)
+            print(f"Fine-tuning complete. Model saved to '{config.NN_WEIGHTS_FILE}'.")
         except Exception as e:
             print(f"Error saving model: {e}")
 
         return total_loss
 
     def generate_response_from_prompt(self, prompt):
-        if not config.USE_TORCH or self.kellon_nn is None:
+        if not self.model or not self.tokenizer:
             return None
 
-        input_vec = self._text_to_vector(prompt)
-        if input_vec.numel() == 0:
+        input_text = f"{prompt}{self.tokenizer.eos_token}"
+        input_ids = self.tokenizer.encode(input_text, return_tensors="pt")
+
+        device = self.model.device
+        input_ids = input_ids.to(device)
+
+        output_sequences = self.model.generate(
+            input_ids,
+            max_length=60,
+            num_return_sequences=1,
+            no_repeat_ngram_size=2,
+            early_stopping=True,
+            pad_token_id=self.tokenizer.eos_token_id,
+            temperature=0.7,
+            top_k=50
+        )
+
+        response_text = self.tokenizer.decode(output_sequences[0], skip_special_tokens=True)
+
+        clean_response = response_text.replace(prompt, "").strip()
+
+        if not clean_response:
             return None
 
-        with config.torch.no_grad():
-            output_vec = self.kellon_nn(input_vec).squeeze(0)
-
-            # Simple decoding: find words with activation > 0.5
-            response_indices = (output_vec > 0.5).nonzero(as_tuple=True)[0]
-            if response_indices.numel() == 0:
-                # Fallback: take the word with the highest score
-                response_indices = [output_vec.argmax()]
-
-            response_words = [self.vocab.idx2word[i] for i in response_indices]
-            return " ".join(response_words)
+        return clean_response
 
     def reset(self):
-        if os.path.exists(config.NN_WEIGHTS_FILE):
-            try:
-                os.remove(config.NN_WEIGHTS_FILE)
-                self._build_nn(rebuild=True)
-                return "Greutățile NN au fost șterse. Rețeaua va reîncepe să învețe incremental."
-            except Exception as e:
-                return f"Nu am putut șterge greutățile NN: {e}"
-        return "Nu există fișier de greutăți NN."
+        # This method is now more complex as it would involve deleting the saved model directory
+        # For now, we can just re-initialize from the base model
+        model_name = "distilgpt2"
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModelForCausalLM.from_pretrained(model_name)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+            return "Transformer model has been reset to the base pre-trained version."
+        except Exception as e:
+            return f"Error resetting model: {e}"

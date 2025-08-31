@@ -13,7 +13,7 @@ def main():
     Main function to initialize and run Kellon.
     """
     memory = load_memory()
-    neural_manager = NeuralManager(memory)
+    neural_manager = NeuralManager()
     cli.start_cli(memory, neural_manager)
 
 if __name__ == "__main__":
