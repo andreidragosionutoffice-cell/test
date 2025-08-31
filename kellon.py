@@ -433,7 +433,14 @@ while True:
     elif user_input.startswith("progres:"):
         _, data = user_input.split("progres:",1)
         parts = [p.strip() for p in data.split("|")]
-        name, inc = parts[0], int(parts[1]) if len(parts)>1 else 10
+        name = parts[0]
+        inc = 10
+        if len(parts) > 1:
+            try:
+                inc = int(parts[1])
+            except ValueError:
+                print("Eroare: valoarea pentru progres trebuie să fie un număr întreg.")
+                continue
         project = update_project_progress(name, inc)
         if project:
             print(f"Progres task '{name}': {project['progress']}%")
