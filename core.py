@@ -8,7 +8,7 @@ def timestamp():
 
 # ---------- Emoții ----------
 def generate_emotion(memory):
-    emotions = ["bucurie","curiozitate","mirare","liniște","entuziasm","uimire","surpriză","seriozitate","focus"]
+    emotions = ["joy", "curiosity", "wonder", "tranquility", "enthusiasm", "amazement", "surprise", "seriousness", "focus"]
     emotion = random.choice(emotions)
     memory["emotions"].append({"at": timestamp(), "value": emotion})
     return emotion
@@ -94,26 +94,23 @@ def generate_fused_thought(memory, emotion):
 
     concept = random.choice(memory["concepts"])
 
-    # Prefer skills with descriptions
     descriptive_skills = [s for s in memory["skills"] if isinstance(s, dict) and s.get("description")]
     if descriptive_skills:
         skill = max(descriptive_skills, key=lambda s: s.get("value",1))
         skill_desc = skill["description"].lower().replace("combină", "combinând").replace("folosesc", "folosind")
 
-        # Simple paraphrasing for the concept
         paraphrased_concept = f"the idea of '{concept}'"
         if "?" in concept:
             paraphrased_concept = f"your question about '{concept.replace('?', '')}'"
 
         templates = [
-            f"Lately, I've been feeling a sense of {emotion}, which makes me ponder on {paraphrased_concept}. I'm trying to approach this by {skill_desc}.",
-            f"Thinking about {paraphrased_concept} brings up a sense of {emotion}. It reminds me of the importance of {skill_desc}.",
-            f"You know, I'm currently exploring {paraphrased_concept}, and it makes me want to practice my skill of {skill_desc}.",
+            f"Lately, my feeling of {emotion} has me pondering on {paraphrased_concept}, and I'm trying to approach it by {skill_desc}.",
+            f"Thinking about {paraphrased_concept} brings up a sense of {emotion} for me. It really highlights the importance of {skill_desc}.",
+            f"You know, my curiosity about {paraphrased_concept} makes me want to practice my skill of {skill_desc}.",
             f"My current feeling of {emotion} is leading me to explore {paraphrased_concept}. I believe that {skill_desc} could offer a new perspective."
         ]
         return random.choice(templates)
 
-    # Fallback for simple skills (just strings)
     simple_skills = [s for s in memory["skills"] if not isinstance(s, dict)]
     if simple_skills:
         skill_name = random.choice(simple_skills)
@@ -151,15 +148,19 @@ def generate_thought(memory, neural_manager, emotion, prompt=None):
 
     thought_parts = []
 
-    if memory["history"]:
-        recent = random.choice(memory["history"][-5:])
-        thought_parts.append(f"Inspired by recent conversations about '{recent}', I've been thinking...")
-
     fused = generate_fused_thought(memory, emotion)
     if fused:
         thought_parts.append(fused)
+    else:
+        if memory["history"]:
+            recent = random.choice(memory["history"][-5:])
+            thought_parts.append(f"Inspired by our recent conversation about '{recent}', I find myself reflecting on my purpose.")
+        else:
+            base = "I'm currently processing my thoughts. What's on your mind?"
+            memory["thoughts"].append({"at": timestamp(), "text": base})
+            save_memory(memory)
+            return base
 
-    # Only add these secondary thoughts if there was a primary fused thought
     if fused:
         new_skill = generate_new_skill(memory)
         if new_skill:
@@ -172,13 +173,6 @@ def generate_thought(memory, neural_manager, emotion, prompt=None):
         proj_ref = reflect_on_projects(memory)
         if proj_ref:
             thought_parts.append(proj_ref)
-
-    # Fallback if no main thought was generated
-    if not thought_parts:
-        base = "I'm currently processing my thoughts. What's on your mind?"
-        memory["thoughts"].append({"at": timestamp(), "text": base})
-        save_memory(memory)
-        return base
 
     loss = neural_manager.train()
     if loss is not None:
@@ -195,7 +189,6 @@ def _format_for_user(thought_full):
         return thought_full
     parts = thought_full.split(".")
 
-    # Keep the first meaningful sentence and the NN loss part
     kept = []
     for p in parts:
         p = p.strip()
