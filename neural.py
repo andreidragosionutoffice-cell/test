@@ -1,4 +1,5 @@
 import os
+import json
 import config
 
 class NeuralManager:
@@ -10,7 +11,9 @@ class NeuralManager:
         self.loss_fn = None
         self._kellon_input_size = None
 
-        self._update_vocab_from_memory()
+        self.training_data = self._load_training_data()
+        self._update_vocab()
+
         if config.USE_TORCH:
             self._build_nn()
 
@@ -22,7 +25,7 @@ class NeuralManager:
 
         def add_words(self, words):
             for w in words:
-                w = str(w).strip()
+                w = str(w).strip().lower()
                 if w and w not in self.word2idx:
                     self.word2idx[w] = len(self.idx2word)
                     self.idx2word.append(w)
@@ -30,6 +33,7 @@ class NeuralManager:
         def encode_dense(self, words):
             vec = [0.0]*len(self.idx2word)
             for w in words:
+                w = w.lower()
                 if w in self.word2idx:
                     vec[self.word2idx[w]] = 1.0
             if config.USE_TORCH:
@@ -48,8 +52,6 @@ class NeuralManager:
                 self.fc1 = config.nn.Linear(input_size, hidden_size)
                 self.relu = config.nn.ReLU()
                 self.fc2 = config.nn.Linear(hidden_size, output_size)
-                self._input_size = input_size
-                self._output_size = output_size
 
             def forward(self, x):
                 if x.dim()==1:
@@ -62,6 +64,27 @@ class NeuralManager:
         _KellonNN = None
 
     # --- "Private" Methods ---
+    def _load_training_data(self):
+        if os.path.exists(config.TRAINING_DATA_FILE):
+            with open(config.TRAINING_DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return []
+
+    def _update_vocab(self):
+        # From memory
+        words = []
+        words += self.memory.get("concepts", [])
+        words += [s["name"] for s in self.memory.get("skills", []) if isinstance(s, dict)]
+        words += self.memory.get("history", [])
+
+        # From training data
+        if self.training_data:
+            for item in self.training_data:
+                words.extend(item["input"].lower().split())
+                words.extend(item["output"].lower().split())
+
+        self.vocab.add_words(words)
+
     def _build_nn(self, rebuild=False):
         if not config.USE_TORCH:
             return
@@ -86,52 +109,73 @@ class NeuralManager:
         self.loss_fn = loss
         self._kellon_input_size = input_size
 
-    def _update_vocab_from_memory(self):
-        words = []
-        words += self.memory.get("concepts", [])
-        words += [s["name"] for s in self.memory.get("skills", []) if isinstance(s, dict)]
-        words += self.memory.get("history", [])
-        self.vocab.add_words(words)
-        return words
-
-    def _memory_to_vector(self):
-        words = self._update_vocab_from_memory()
+    def _text_to_vector(self, text):
+        words = text.lower().split()
         return self.vocab.encode_dense(words)
 
     # --- Public API Methods ---
-    def train(self, epochs=3):
-        if not config.USE_TORCH:
+    def train(self, epochs=20):
+        if not config.USE_TORCH or not self.training_data:
+            print("Training skipped: PyTorch not available or no training data found.")
             return None
 
-        self._update_vocab_from_memory()
+        self._update_vocab()
 
         input_size = max(1, self.vocab.size())
         if self._kellon_input_size != input_size:
             self._build_nn(rebuild=True)
 
-        x = self._memory_to_vector()
-        if x.numel() == 0:
-            if self._kellon_input_size is None:
-                self._build_nn(rebuild=True)
-            if self._kellon_input_size is None:
-                return None
-            x = config.torch.zeros(self._kellon_input_size)
+        print("Starting training on dataset...")
+        total_loss = 0
+        for epoch in range(epochs):
+            epoch_loss = 0
+            for item in self.training_data:
+                self.optimizer.zero_grad()
 
-        x_t = x.unsqueeze(0)
-        target = x_t.clone()
-        last_loss = None
-        for _ in range(max(1, epochs)):
-            self.optimizer.zero_grad()
-            out = self.kellon_nn(x_t)
-            loss = self.loss_fn(out, target)
-            loss.backward()
-            self.optimizer.step()
-            last_loss = float(loss.item())
+                input_vec = self._text_to_vector(item["input"])
+                target_vec = self._text_to_vector(item["output"])
+
+                if input_vec.numel() == 0:
+                    continue
+
+                output_vec = self.kellon_nn(input_vec)
+
+                loss = self.loss_fn(output_vec, target_vec.unsqueeze(0))
+                loss.backward()
+                self.optimizer.step()
+                epoch_loss += loss.item()
+
+            total_loss = epoch_loss / len(self.training_data)
+            if (epoch + 1) % 5 == 0:
+                print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss:.4f}")
+
         try:
             config.torch.save(self.kellon_nn.state_dict(), config.NN_WEIGHTS_FILE)
-        except Exception:
-            pass
-        return last_loss
+            print("Training complete. Model saved.")
+        except Exception as e:
+            print(f"Error saving model: {e}")
+
+        return total_loss
+
+    def generate_response_from_prompt(self, prompt):
+        if not config.USE_TORCH or self.kellon_nn is None:
+            return None
+
+        input_vec = self._text_to_vector(prompt)
+        if input_vec.numel() == 0:
+            return None
+
+        with config.torch.no_grad():
+            output_vec = self.kellon_nn(input_vec).squeeze(0)
+
+            # Simple decoding: find words with activation > 0.5
+            response_indices = (output_vec > 0.5).nonzero(as_tuple=True)[0]
+            if response_indices.numel() == 0:
+                # Fallback: take the word with the highest score
+                response_indices = [output_vec.argmax()]
+
+            response_words = [self.vocab.idx2word[i] for i in response_indices]
+            return " ".join(response_words)
 
     def reset(self):
         if os.path.exists(config.NN_WEIGHTS_FILE):

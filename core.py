@@ -18,6 +18,12 @@ def learn_skill(memory, skill_name, description, steps=None):
     if steps is None:
         steps = []
     steps = [s for s in steps if s]
+
+    # Sanitize description
+    if description and ("{" in description or "}" in description or len(description) > 150):
+        # Fallback to a safe, generic description
+        description = f"a skill related to '{skill_name}' that I am developing"
+
     skill = {"name": skill_name, "description": description, "steps": steps, "value":1}
     for s in memory["skills"]:
         if isinstance(s, dict) and s.get("name") == skill_name:
@@ -42,10 +48,17 @@ def learn_from_text(memory, text):
     text = text.strip()
     if not text:
         return
+
+    # Sanitize input to prevent template injection
+    if "{" in text or "}" in text or len(text) > 100:
+        return
+
     if text not in memory["concepts"]:
         memory["concepts"].append(text)
+
+    # Also sanitize words added as simple skills
     for word in text.lower().split():
-        if word and all(not (isinstance(s, dict) and s.get("name")==word) for s in memory["skills"]):
+        if word and len(word) < 20 and all(not (isinstance(s, dict) and s.get("name")==word) for s in memory["skills"]):
             memory["skills"].append(word)
     save_memory(memory)
 
@@ -174,9 +187,7 @@ def generate_thought(memory, neural_manager, emotion, prompt=None):
         if proj_ref:
             thought_parts.append(proj_ref)
 
-    loss = neural_manager.train()
-    if loss is not None:
-        thought_parts.append(f"(My neural network is also learning, loss: {loss:.4f})")
+    # Training is now done via a separate command, not during thought generation.
 
     base = " ".join(thought_parts)
 
@@ -210,11 +221,18 @@ def _format_for_user(thought_full):
 
 def reflect(memory, neural_manager, prompt=None, training_mode=False):
     emotion = generate_emotion(memory)
+
+    # Learn from the user's prompt first
     if prompt:
         memory["history"].append(prompt)
         learn_from_text(memory, prompt)
-        thought = generate_thought(memory, neural_manager, emotion, prompt)
-        return f"{config.NAME} ({emotion}): {_format_for_user(thought)}"
-    else:
-        thought = generate_thought(memory, neural_manager, emotion)
-        return f"{config.NAME} ({emotion}): {_format_for_user(thought)}"
+
+    # Try to generate a response using the NN first
+    if prompt:
+        nn_response = neural_manager.generate_response_from_prompt(prompt)
+        if nn_response:
+            return f"{config.NAME} ({emotion}): {nn_response}"
+
+    # Fallback to the template-based generation if no prompt or if NN fails
+    thought = generate_thought(memory, neural_manager, emotion, prompt)
+    return f"{config.NAME} ({emotion}): {_format_for_user(thought)}"

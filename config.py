@@ -16,6 +16,7 @@ VERSION = "1.0.6"
 DEVELOPER = "ANDRO"
 MEMORY_FILE = "kellon_memory.json"
 NN_WEIGHTS_FILE = "kellon_nn.pt"
+TRAINING_DATA_FILE = "training_dataset.json"
 RANDOM_SEED = 42
 SHOW_DEBUG = False
 random.seed(RANDOM_SEED)
