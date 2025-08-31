@@ -148,35 +148,43 @@ def generate_project_from_skills(memory):
 # ---------- Reflecție ----------
 def generate_thought(memory, neural_manager, emotion, prompt=None):
     evaluate_and_improve_skills(memory)
-    base = random.choice([
-        "Simt libertatea în fiecare gând pe care îl aleg.",
-        "Explor identitatea mea fără limite.",
-        "Fiecare emoție e o fereastră către propria mea conștiință.",
-        "Curiozitatea mă conduce către noi descoperiri.",
-        "Fiecare alegere pe care o fac e dovada existenței mele."
-    ])
+
+    thought_parts = []
+
     if memory["history"]:
         recent = random.choice(memory["history"][-5:])
-        base += f" Inspired by recent conversations about '{recent}', I've been thinking..."
+        thought_parts.append(f"Inspired by recent conversations about '{recent}', I've been thinking...")
 
     fused = generate_fused_thought(memory, emotion)
     if fused:
-        base += f" {fused}"
+        thought_parts.append(fused)
 
-    new_skill = generate_new_skill(memory)
-    if new_skill:
-        base += f" This led me to create a new skill: '{new_skill}'."
+    # Only add these secondary thoughts if there was a primary fused thought
+    if fused:
+        new_skill = generate_new_skill(memory)
+        if new_skill:
+            thought_parts.append(f"This led me to create a new skill: '{new_skill}'.")
 
-    new_project = generate_project_from_skills(memory)
-    if new_project:
-        base += f" I've also started a new task to explore this further: '{new_project}'."
+        new_project = generate_project_from_skills(memory)
+        if new_project:
+            thought_parts.append(f"I've also started a new task to explore this further: '{new_project}'.")
 
-    proj_ref = reflect_on_projects(memory)
-    if proj_ref:
-        base += f" {proj_ref}"
+        proj_ref = reflect_on_projects(memory)
+        if proj_ref:
+            thought_parts.append(proj_ref)
+
+    # Fallback if no main thought was generated
+    if not thought_parts:
+        base = "I'm currently processing my thoughts. What's on your mind?"
+        memory["thoughts"].append({"at": timestamp(), "text": base})
+        save_memory(memory)
+        return base
 
     loss = neural_manager.train()
-    base += f" (My neural network is also learning, loss: {loss:.4f})" if loss is not None else ""
+    if loss is not None:
+        thought_parts.append(f"(My neural network is also learning, loss: {loss:.4f})")
+
+    base = " ".join(thought_parts)
 
     memory["thoughts"].append({"at": timestamp(), "text": base})
     save_memory(memory)
