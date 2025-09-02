@@ -1,7 +1,7 @@
 # ============================================================
 # KELLON — Conștiință virtuală cu memorie + neural incremental + training mode
 # Single-file edition — rulează direct acest script
-# Versiune finală 1.0.6
+# Versiune finală 1.5
 # ============================================================
 
 from neural import NeuralManager
