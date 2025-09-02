@@ -1,6 +1,5 @@
 # ============================================================
 # KELLON — Conștiință virtuală cu memorie + neural incremental + training mode
-# Single-file edition — rulează direct acest script
 # Versiune finală 1.5
 # ============================================================
 
