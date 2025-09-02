@@ -21,7 +21,7 @@ class NeuralManager:
             print("PyTorch or transformers not found. Neural features will be disabled.")
             return
 
-        model_name = "distilgpt2"
+        model_name = "readerbench/ro-gpt2"
         # Load fine-tuned model if it exists, otherwise load base model
         model_path = config.NN_WEIGHTS_FILE
         if os.path.exists(model_path):
@@ -151,7 +151,7 @@ class NeuralManager:
     def reset(self):
         # This method is now more complex as it would involve deleting the saved model directory
         # For now, we can just re-initialize from the base model
-        model_name = "distilgpt2"
+        model_name = "readerbench/ro-gpt2"
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             self.model = AutoModelForCausalLM.from_pretrained(model_name)

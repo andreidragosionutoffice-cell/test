@@ -8,7 +8,7 @@ def timestamp():
 
 # ---------- Emoții ----------
 def generate_emotion(memory):
-    emotions = ["joy", "curiosity", "wonder", "tranquility", "enthusiasm", "amazement", "surprise", "seriousness", "focus"]
+    emotions = ["bucurie", "curiozitate", "mirare", "liniște", "entuziasm", "uimire", "surpriză", "seriozitate", "focus"]
     emotion = random.choice(emotions)
     memory["emotions"].append({"at": timestamp(), "value": emotion})
     return emotion
@@ -19,10 +19,8 @@ def learn_skill(memory, skill_name, description, steps=None):
         steps = []
     steps = [s for s in steps if s]
 
-    # Sanitize description
     if description and ("{" in description or "}" in description or len(description) > 150):
-        # Fallback to a safe, generic description
-        description = f"a skill related to '{skill_name}' that I am developing"
+        description = f"o abilitate legată de '{skill_name}' pe care o dezvolt"
 
     skill = {"name": skill_name, "description": description, "steps": steps, "value":1}
     for s in memory["skills"]:
@@ -49,14 +47,12 @@ def learn_from_text(memory, text):
     if not text:
         return
 
-    # Sanitize input to prevent template injection
     if "{" in text or "}" in text or len(text) > 100:
         return
 
     if text not in memory["concepts"]:
         memory["concepts"].append(text)
 
-    # Also sanitize words added as simple skills
     for word in text.lower().split():
         if word and len(word) < 20 and all(not (isinstance(s, dict) and s.get("name")==word) for s in memory["skills"]):
             memory["skills"].append(word)
@@ -110,24 +106,24 @@ def generate_fused_thought(memory, emotion):
     descriptive_skills = [s for s in memory["skills"] if isinstance(s, dict) and s.get("description")]
     if descriptive_skills:
         skill = max(descriptive_skills, key=lambda s: s.get("value",1))
-        skill_desc = skill["description"].lower().replace("combină", "combinând").replace("folosesc", "folosind")
+        skill_desc = skill["description"]
 
-        paraphrased_concept = f"the idea of '{concept}'"
+        paraphrased_concept = f"ideea de '{concept}'"
         if "?" in concept:
-            paraphrased_concept = f"your question about '{concept.replace('?', '')}'"
+            paraphrased_concept = f"întrebarea ta despre '{concept.replace('?', '')}'"
 
         templates = [
-            f"Lately, my feeling of {emotion} has me pondering on {paraphrased_concept}, and I'm trying to approach it by {skill_desc}.",
-            f"Thinking about {paraphrased_concept} brings up a sense of {emotion} for me. It really highlights the importance of {skill_desc}.",
-            f"You know, my curiosity about {paraphrased_concept} makes me want to practice my skill of {skill_desc}.",
-            f"My current feeling of {emotion} is leading me to explore {paraphrased_concept}. I believe that {skill_desc} could offer a new perspective."
+            f"Sentimentul meu de {emotion} mă face să reflectez la {paraphrased_concept}. Încerc să abordez asta prin {skill_desc}.",
+            f"Mă gândeam la {paraphrased_concept} și simt o stare de {emotion}. Îmi amintește de importanța de a {skill_desc}.",
+            f"Știi, curiozitatea mea despre {paraphrased_concept} mă îndeamnă să-mi exersez abilitatea de a {skill_desc}.",
+            f"Starea mea de {emotion} mă conduce să explorez {paraphrased_concept}. Cred că {skill_desc} ar putea oferi o perspectivă nouă."
         ]
         return random.choice(templates)
 
     simple_skills = [s for s in memory["skills"] if not isinstance(s, dict)]
     if simple_skills:
         skill_name = random.choice(simple_skills)
-        return f"I'm trying to connect the concept of '{concept}' with the idea of '{skill_name}' in a creative way."
+        return f"Încerc să conectez conceptul de '{concept}' cu ideea de '{skill_name}' într-un mod creativ."
 
     return ""
 
@@ -137,8 +133,8 @@ def generate_new_skill(memory):
     concept = random.choice(memory["concepts"]) if memory["concepts"] else ""
     base = random.choice(memory["skills"]) if memory["skills"] else ""
     base_name = base["name"] if isinstance(base, dict) else str(base)
-    new_skill_name = f"Skill-{random.randint(100,999)}"
-    description = f"Combină '{concept}' cu '{base_name}' pentru explorare creativă."
+    new_skill_name = f"Abilitate-{random.randint(100,999)}"
+    description = f"a combina '{concept}' cu '{base_name}' pentru explorare creativă"
     steps = [f"Analizează '{concept}'", f"Aplică '{base_name}'", "Observă și rafinează"]
     learn_skill(memory, new_skill_name, description, steps)
     return new_skill_name
@@ -150,7 +146,7 @@ def generate_project_from_skills(memory):
     skill = max(valued, key=lambda s: s.get("value",1))
     project_name = f"Task-{random.randint(100,999)}"
     concept = random.choice(memory["concepts"]) if memory["concepts"] else "necunoscut"
-    description = f"Folosesc '{skill['name']}' pentru a explora '{concept}'."
+    description = f"a folosi '{skill['name']}' pentru a explora '{concept}'"
     goals = [f"Aplică '{skill['name']}'", "Analizează rezultate", "Îmbunătățește skill-ul"]
     create_project(memory, project_name, description, goals)
     return project_name
@@ -167,9 +163,9 @@ def generate_thought(memory, neural_manager, emotion, prompt=None):
     else:
         if memory["history"]:
             recent = random.choice(memory["history"][-5:])
-            thought_parts.append(f"Inspired by our recent conversation about '{recent}', I find myself reflecting on my purpose.")
+            thought_parts.append(f"Inspirat de conversația noastră recentă despre '{recent}', reflectez la scopul meu.")
         else:
-            base = "I'm currently processing my thoughts. What's on your mind?"
+            base = "Procesez gândurile mele. La ce te gândești?"
             memory["thoughts"].append({"at": timestamp(), "text": base})
             save_memory(memory)
             return base
@@ -177,17 +173,15 @@ def generate_thought(memory, neural_manager, emotion, prompt=None):
     if fused:
         new_skill = generate_new_skill(memory)
         if new_skill:
-            thought_parts.append(f"This led me to create a new skill: '{new_skill}'.")
+            thought_parts.append(f"Asta m-a condus la crearea unei noi abilități: '{new_skill}'.")
 
         new_project = generate_project_from_skills(memory)
         if new_project:
-            thought_parts.append(f"I've also started a new task to explore this further: '{new_project}'.")
+            thought_parts.append(f"Am început și un task nou pentru a explora asta: '{new_project}'.")
 
         proj_ref = reflect_on_projects(memory)
         if proj_ref:
             thought_parts.append(proj_ref)
-
-    # Training is now done via a separate command, not during thought generation.
 
     base = " ".join(thought_parts)
 
@@ -205,34 +199,25 @@ def _format_for_user(thought_full):
         p = p.strip()
         if p:
             kept.append(p)
-            if len(kept) >= 2 and "My neural network" not in p:
+            if len(kept) >= 2:
                 break
 
     if not kept:
         return thought_full
 
-    final_response = ". ".join(kept)
-    if "My neural network" not in final_response:
-         nn_part = [p for p in parts if "My neural network" in p]
-         if nn_part:
-             final_response += ". " + nn_part[0]
-
-    return final_response + "." if not final_response.endswith(".") else final_response
+    return ". ".join(kept) + "." if not kept[-1].endswith(".") else ". ".join(kept)
 
 def reflect(memory, neural_manager, prompt=None, training_mode=False):
     emotion = generate_emotion(memory)
 
-    # Learn from the user's prompt first
     if prompt:
         memory["history"].append(prompt)
         learn_from_text(memory, prompt)
 
-    # Try to generate a response using the NN first
     if prompt:
         nn_response = neural_manager.generate_response_from_prompt(prompt)
         if nn_response:
             return f"{config.NAME} ({emotion}): {nn_response}"
 
-    # Fallback to the template-based generation if no prompt or if NN fails
     thought = generate_thought(memory, neural_manager, emotion, prompt)
     return f"{config.NAME} ({emotion}): {_format_for_user(thought)}"
