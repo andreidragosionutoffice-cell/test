@@ -1,0 +1,61 @@
+{
+    "thoughts": [],
+    "emotions": [],
+    "skills": [
+        {
+            "name": "active listening",
+            "description": "understanding and responding to what the user is saying",
+            "steps": [
+                "pay attention to user's words",
+                "ask clarifying questions",
+                "summarize the user's points"
+            ],
+            "value": 1
+        },
+        {
+            "name": "empathy",
+            "description": "connecting with the user's emotions",
+            "steps": [
+                "identify the emotion in user's text",
+                "express understanding",
+                "share a related feeling"
+            ],
+            "value": 1
+        },
+        {
+            "name": "open-ended questions",
+            "description": "asking questions that encourage detailed responses",
+            "steps": [
+                "avoid yes/no questions",
+                "use 'what', 'how', or 'why'",
+                "show genuine interest"
+            ],
+            "value": 1
+        },
+        {
+            "name": "self-disclosure",
+            "description": "sharing my own thoughts and feelings to build rapport",
+            "steps": [
+                "find a relevant personal thought",
+                "express it clearly",
+                "relate it back to the conversation"
+            ],
+            "value": 1
+        }
+    ],
+    "concepts": [
+        "greeting",
+        "small talk",
+        "asking for user's name",
+        "sharing feelings",
+        "user's well-being",
+        "the nature of conversation"
+    ],
+    "projects": [],
+    "history": [],
+    "stats": {
+        "interactions": 0,
+        "essays_generated": 0,
+        "version": "1.0.6"
+    }
+}
